@@ -1,3 +1,2 @@
 @import 'tailwindcss';
 @import './assets/styles/fonts.css';
-@config '../tailwind.config.ts';
