@@ -4,16 +4,15 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 
-import Provider from '@/Provider.tsx';
-
 import App from './App.tsx';
+import Providers from './providers.tsx';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
-      <Provider>
+      <Providers>
         <App />
-      </Provider>
+      </Providers>
     </BrowserRouter>
   </StrictMode>,
 );
