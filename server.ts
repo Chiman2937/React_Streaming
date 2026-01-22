@@ -1,10 +1,18 @@
 // server.js
 import express from 'express';
-import { createServer as createViteServer } from 'vite';
 import fs from 'node:fs/promises';
+import { createServer as createViteServer } from 'vite';
+
+import apiRouter from './src/api/routes';
 
 async function createServer() {
   const app = express();
+
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
+
+  // api 요청 처리
+  app.use('/api', apiRouter);
 
   // Vite 개발 서버 생성
   const vite = await createViteServer({
@@ -29,19 +37,27 @@ async function createServer() {
       // 3. 서버 진입점 로드
       const { render } = await vite.ssrLoadModule('/src/entry-server.tsx');
 
-      // 4. 앱 HTML 렌더링
-      const appHtml = await render(url);
+      // 4. 서버에서 React 컴포넌트 렌더링 + React Query 캐시 추출
+      const { html, dehydratedState } = await render(url);
 
-      // 5. 템플릿에 렌더링된 HTML 삽입
-      const html = template.replace(`<!--app-html-->`, appHtml);
+      // 5. HTML 템플릿 조합:
+      // (1) <!--app-html--> 위치에 서버 렌더링된 HTML 삽입
+      // (2) </body> 직전에 React Query 캐시를 스크립트로 주입
+      const finalHtml = template
+        .replace('<!--app-html-->', html)
+        .replace(
+          '</body>',
+          `<script>window.__REACT_QUERY_STATE__ = ${JSON.stringify(dehydratedState)}</script></body>`,
+        );
 
       // 6. 응답 전송
-      res.status(200).set({ 'Content-Type': 'text/html' }).end(html);
+      res.status(200).set({ 'Content-Type': 'text/html' }).end(finalHtml);
     } catch (e) {
       // 에러 발생 시 스택 트레이스 수정
-      vite.ssrFixStacktrace(e);
-      console.error(e);
-      res.status(500).end(e.message);
+      const error = e as Error;
+      vite.ssrFixStacktrace(error);
+      console.error(error);
+      res.status(500).end(error.message);
     }
   });
 
