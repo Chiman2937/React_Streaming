@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch server.ts",
-    "build": "tsc -b && vite build",
-    "lint": "eslint .",
-    "preview": "vite preview",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "vite build --outDir dist/client",
+    "build:server": "vite build --ssr src/entry-server.tsx --outDir dist/server",
+    "preview": "cross-env NODE_ENV=production tsx server.ts",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -23,15 +24,18 @@
     "@tailwindcss/vite": "^4.1.16",
     "@tanstack/react-query": "^5.90.5",
     "@tanstack/react-query-devtools": "^5.90.2",
+    "compression": "^1.8.1",
     "express": "^4.22.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-error-boundary": "^6.0.0",
     "react-router-dom": "^7.9.4",
+    "sirv": "^3.0.2",
     "tailwindcss": "^4.1.16"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
+    "@types/compression": "^1.8.1",
     "@types/express": "^4.17.25",
     "@types/node": "^24.6.0",
     "@types/react": "^19.1.16",
