@@ -1,69 +1,88 @@
-// server.js
 import express from 'express';
 import fs from 'node:fs/promises';
-import { createServer as createViteServer } from 'vite';
+import { ViteDevServer } from 'vite';
 
 import apiRouter from './src/api/routes';
 
-async function createServer() {
-  const app = express();
+// Constants 설정
+const isProduction = process.env.NODE_ENV === 'production';
+const port = process.env.PORT || 3000;
+const base = process.env.BASE || '';
 
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+const templateHtml = isProduction ? await fs.readFile('./dist/client/index.html', 'utf-8') : '';
 
-  // api 요청 처리
-  app.use('/api', apiRouter);
+// http 서버 생성
+const app = express();
 
-  // Vite 개발 서버 생성
-  const vite = await createViteServer({
+// Api 요청 처리
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use('/api', apiRouter);
+
+let vite: ViteDevServer;
+
+if (!isProduction) {
+  const { createServer } = await import('vite');
+  vite = await createServer({
     server: { middlewareMode: true },
     appType: 'custom',
+    base,
   });
-
-  // Vite의 connect 인스턴스를 미들웨어로 사용
   app.use(vite.middlewares);
+} else {
+  const compression = (await import('compression')).default;
+  const sirv = (await import('sirv')).default;
+  app.use(compression());
+  app.use(base, sirv('./dist/client', { extensions: [] }));
+}
 
-  // 모든 요청 처리
-  app.use('*', async (req, res) => {
-    const url = req.originalUrl;
+// 모든 요청 처리
+app.use('*', async (req, res) => {
+  try {
+    const url = req.originalUrl.replace(base, '');
 
-    try {
+    let template;
+    let render;
+
+    if (!isProduction) {
       // 1. index.html 읽기
-      let template = await fs.readFile('./index.html', 'utf-8');
+      template = await fs.readFile('./index.html', 'utf-8');
 
       // 2. Vite HTML 변환 적용 (HMR 등)
       template = await vite.transformIndexHtml(url, template);
 
       // 3. 서버 진입점 로드
-      const { render } = await vite.ssrLoadModule('/src/entry-server.tsx');
-
-      // 4. 서버에서 React 컴포넌트 렌더링 + React Query 캐시 추출
-      const { html, dehydratedState } = await render(url);
-
-      // 5. HTML 템플릿 조합:
-      // (1) <!--app-html--> 위치에 서버 렌더링된 HTML 삽입
-      // (2) </body> 직전에 React Query 캐시를 스크립트로 주입
-      const finalHtml = template
-        .replace('<!--app-html-->', html)
-        .replace(
-          '</body>',
-          `<script>window.__REACT_QUERY_STATE__ = ${JSON.stringify(dehydratedState)}</script></body>`,
-        );
-
-      // 6. 응답 전송
-      res.status(200).set({ 'Content-Type': 'text/html' }).end(finalHtml);
-    } catch (e) {
-      // 에러 발생 시 스택 트레이스 수정
-      const error = e as Error;
-      vite.ssrFixStacktrace(error);
-      console.error(error);
-      res.status(500).end(error.message);
+      render = (await vite.ssrLoadModule('/src/entry-server.tsx')).render;
+    } else {
+      template = templateHtml;
+      // @ts-expect-error - 빌드 시 생성되는 파일
+      render = (await import('./dist/server/entry-server.js')).render;
     }
-  });
 
-  app.listen(3000, () => {
-    console.log('✅ Server running on http://localhost:3000');
-  });
-}
+    // 4. 서버에서 React 컴포넌트 렌더링 + React Query 캐시 추출
+    const rendered = await render(url);
 
-createServer();
+    // 5. HTML 템플릿 조합:
+    // (1) <!--app-head--> 위치에 동적 head 태그 삽입 (title, meta 등)
+    // (1) <!--app-html--> 위치에 서버 렌더링된 HTML 삽입
+    const finalHtml = template
+      .replace('<!--app-head-->', rendered.head ?? '')
+      .replace('<!--app-html-->', rendered.html ?? '');
+
+    // 6. 응답 전송
+    res.status(200).set({ 'Content-Type': 'text/html' }).end(finalHtml);
+  } catch (e) {
+    // 에러 발생 시 스택 트레이스 수정
+    const error = e as Error;
+    if (!isProduction && vite) {
+      vite.ssrFixStacktrace(error);
+    }
+    console.error(error);
+    res.status(500).end(error.message);
+  }
+});
+
+// http 서버 시작
+app.listen(port, () => {
+  console.log('✅ Server running on http://localhost:3000');
+});
